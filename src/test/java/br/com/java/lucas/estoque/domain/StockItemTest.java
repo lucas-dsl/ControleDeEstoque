@@ -4,6 +4,11 @@ import br.com.java.lucas.estoque.domain.exception.InsufficientStockException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import br.com.java.lucas.estoque.domain.exception.InvalidIdentifierException;
+import br.com.java.lucas.estoque.domain.exception.InvalidQuantityException;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -83,5 +88,37 @@ class StockItemTest {
     @DisplayName("saída em produto sem estoque é rejeitada")
     void removeStockFromEmptyItemIsRejected() {
         assertThrows(InsufficientStockException.class, () -> item.removeStock(1));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, -1, -100})
+    @DisplayName("entrada com quantidade zero ou negativa é rejeitada e não altera o estoque")
+    void addStockRejectsNonPositiveQuantity(long quantity) {
+        item.addStock(10);
+
+        assertThrows(InvalidQuantityException.class, () -> item.addStock(quantity));
+
+        assertEquals(10, item.getTotal());
+        assertEquals(10, item.getAvailable());
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, -1, -100})
+    @DisplayName("saída com quantidade zero ou negativa é rejeitada e não altera o estoque")
+    void removeStockRejectsNonPositiveQuantity(long quantity) {
+        item.addStock(10);
+
+        assertThrows(InvalidQuantityException.class, () -> item.removeStock(quantity));
+
+        assertEquals(10, item.getTotal());
+        assertEquals(10, item.getAvailable());
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   "})
+    @DisplayName("produto com identificador nulo, vazio ou em branco é rejeitado")
+    void constructorRejectsInvalidProductId(String productId) {
+        assertThrows(InvalidIdentifierException.class, () -> new StockItem(productId));
     }
 }
