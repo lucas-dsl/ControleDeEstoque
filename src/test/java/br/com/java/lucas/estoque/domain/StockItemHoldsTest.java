@@ -9,6 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import br.com.java.lucas.estoque.domain.exception.HoldAlreadyReleasedException;
+import br.com.java.lucas.estoque.domain.exception.HoldNotFoundException;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -160,5 +163,97 @@ class StockItemHoldsTest {
 
         item.removeStock(2);
         assertStock(8, 0, 6, 2);
+    }
+
+    @Test
+    @DisplayName("liberar reserva devolve ao disponível, sem alterar o total")
+    void releaseReservationReturnsQuantityToAvailable() {
+        StockHold hold = item.reserve(4, "REQ-1");
+
+        item.release(hold.getId());
+
+        assertStock(10, 10, 0, 0);
+        assertEquals(HoldStatus.RELEASED, item.getHold(hold.getId()).getStatus());
+    }
+
+    @Test
+    @DisplayName("liberar bloqueio devolve ao disponível, sem alterar o total")
+    void releaseBlockReturnsQuantityToAvailable() {
+        StockHold hold = item.block(3, null);
+
+        item.release(hold.getId());
+
+        assertStock(10, 10, 0, 0);
+        assertEquals(HoldStatus.RELEASED, item.getHold(hold.getId()).getStatus());
+    }
+
+    @Test
+    @DisplayName("liberar uma retenção não afeta as outras")
+    void releaseOnlyAffectsThatHold() {
+        StockHold first = item.reserve(3, "REQ-1");
+        StockHold second = item.reserve(2, "REQ-2");
+
+        item.release(first.getId());
+
+        assertStock(10, 8, 2, 0);
+        assertTrue(item.getHold(second.getId()).isActive());
+    }
+
+    @Test
+    @DisplayName("liberar retenção inexistente é rejeitado e não altera o estoque")
+    void releaseUnknownHoldIsRejected() {
+        item.reserve(4, "REQ-1");
+
+        assertThrows(HoldNotFoundException.class, () -> item.release(UUID.randomUUID()));
+
+        assertStock(10, 6, 4, 0);
+    }
+
+    @Test
+    @DisplayName("liberar com identificador nulo é rejeitado")
+    void releaseNullIdIsRejected() {
+        assertThrows(InvalidIdentifierException.class, () -> item.release(null));
+    }
+
+    @Test
+    @DisplayName("liberar a mesma retenção duas vezes é rejeitado e não devolve quantidade em dobro")
+    void releaseTwiceIsRejected() {
+        StockHold hold = item.reserve(4, "REQ-1");
+        item.release(hold.getId());
+
+        assertThrows(HoldAlreadyReleasedException.class, () -> item.release(hold.getId()));
+
+        assertStock(10, 10, 0, 0);
+    }
+
+    @Test
+    @DisplayName("retenção de outro produto não pode ser liberada")
+    void releaseHoldFromOtherProductIsRejected() {
+        StockItem other = new StockItem("PROD-2");
+        other.addStock(10);
+        StockHold hold = item.reserve(4, "REQ-1");
+
+        assertThrows(HoldNotFoundException.class, () -> other.release(hold.getId()));
+
+        assertEquals(10, other.getAvailable());
+        assertStock(10, 6, 4, 0);
+    }
+
+    @Test
+    @DisplayName("consulta devolve a retenção pelo identificador")
+    void getHoldReturnsHoldById() {
+        StockHold hold = item.reserve(4, "REQ-1");
+
+        StockHold found = item.getHold(hold.getId());
+
+        assertEquals(hold.getId(), found.getId());
+        assertEquals(4, found.getQuantity());
+        assertEquals("REQ-1", found.getRequestId());
+    }
+
+    @Test
+    @DisplayName("consulta de retenção inexistente é rejeitada")
+    void getUnknownHoldIsRejected() {
+        assertThrows(HoldNotFoundException.class, () -> item.getHold(UUID.randomUUID()));
     }
 }
