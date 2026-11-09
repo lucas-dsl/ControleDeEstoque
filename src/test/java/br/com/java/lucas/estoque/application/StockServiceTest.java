@@ -8,6 +8,18 @@ import br.com.java.lucas.estoque.infrastructure.InMemoryStockRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import br.com.java.lucas.estoque.domain.exception.HoldAlreadyReleasedException;
+import br.com.java.lucas.estoque.domain.exception.HoldNotFoundException;
+import br.com.java.lucas.estoque.domain.exception.InvalidIdentifierException;
+import br.com.java.lucas.estoque.domain.exception.InvalidQuantityException;
+import br.com.java.lucas.estoque.domain.exception.ProductNotFoundException;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertAll;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -157,5 +169,100 @@ class StockServiceTest {
         service.release("PROD-1", reservation.getId());
         service.release("PROD-1", block.getId());
         assertStock("PROD-1", 8, 8, 0, 0);
+    }
+
+    @Test
+    @DisplayName("operações em produto inexistente lançam ProductNotFoundException")
+    void operationsOnUnknownProductAreRejected() {
+        UUID holdId = UUID.randomUUID();
+
+        assertAll(
+                () -> assertThrows(ProductNotFoundException.class, () -> service.removeStock("PROD-X", 1)),
+                () -> assertThrows(ProductNotFoundException.class, () -> service.reserve("PROD-X", 1, "REQ-1")),
+                () -> assertThrows(ProductNotFoundException.class, () -> service.block("PROD-X", 1, null)),
+                () -> assertThrows(ProductNotFoundException.class, () -> service.release("PROD-X", holdId)),
+                () -> assertThrows(ProductNotFoundException.class, () -> service.getStock("PROD-X")),
+                () -> assertThrows(ProductNotFoundException.class, () -> service.getHold("PROD-X", holdId))
+        );
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" "})
+    @DisplayName("identificador de produto nulo, vazio ou em branco é rejeitado em todas as operações")
+    void operationsWithInvalidProductIdAreRejected(String productId) {
+        UUID holdId = UUID.randomUUID();
+
+        assertAll(
+                () -> assertThrows(InvalidIdentifierException.class, () -> service.addStock(productId, 1)),
+                () -> assertThrows(InvalidIdentifierException.class, () -> service.removeStock(productId, 1)),
+                () -> assertThrows(InvalidIdentifierException.class, () -> service.reserve(productId, 1, "REQ-1")),
+                () -> assertThrows(InvalidIdentifierException.class, () -> service.block(productId, 1, null)),
+                () -> assertThrows(InvalidIdentifierException.class, () -> service.release(productId, holdId)),
+                () -> assertThrows(InvalidIdentifierException.class, () -> service.getStock(productId)),
+                () -> assertThrows(InvalidIdentifierException.class, () -> service.getHold(productId, holdId))
+        );
+    }
+
+    @Test
+    @DisplayName("reserva sem solicitação é rejeitada e não altera o estoque")
+    void reserveWithoutRequestIdIsRejected() {
+        service.addStock("PROD-1", 10);
+
+        assertThrows(InvalidIdentifierException.class, () -> service.reserve("PROD-1", 4, null));
+
+        assertStock("PROD-1", 10, 10, 0, 0);
+    }
+
+    @Test
+    @DisplayName("liberar com identificador de retenção nulo é rejeitado")
+    void releaseWithNullHoldIdIsRejected() {
+        service.addStock("PROD-1", 10);
+
+        assertThrows(InvalidIdentifierException.class, () -> service.release("PROD-1", null));
+    }
+
+    @Test
+    @DisplayName("entrada inválida em produto novo não cria o produto")
+    void invalidFirstEntryDoesNotCreateProduct() {
+        assertThrows(InvalidQuantityException.class, () -> service.addStock("PROD-NEW", 0));
+
+        assertThrows(ProductNotFoundException.class, () -> service.getStock("PROD-NEW"));
+    }
+
+    @Test
+    @DisplayName("liberar retenção inexistente é rejeitado e não altera o estoque")
+    void releaseUnknownHoldIsRejected() {
+        service.addStock("PROD-1", 10);
+        service.reserve("PROD-1", 4, "REQ-1");
+
+        assertThrows(HoldNotFoundException.class, () -> service.release("PROD-1", UUID.randomUUID()));
+
+        assertStock("PROD-1", 10, 6, 4, 0);
+    }
+
+    @Test
+    @DisplayName("liberar a mesma retenção duas vezes é rejeitado e não devolve quantidade em dobro")
+    void releaseTwiceIsRejected() {
+        service.addStock("PROD-1", 10);
+        StockHold hold = service.reserve("PROD-1", 4, "REQ-1");
+        service.release("PROD-1", hold.getId());
+
+        assertThrows(HoldAlreadyReleasedException.class, () -> service.release("PROD-1", hold.getId()));
+
+        assertStock("PROD-1", 10, 10, 0, 0);
+    }
+
+    @Test
+    @DisplayName("retenção de um produto não pode ser liberada por outro produto")
+    void releaseHoldThroughOtherProductIsRejected() {
+        service.addStock("PROD-1", 10);
+        service.addStock("PROD-2", 10);
+        StockHold hold = service.reserve("PROD-1", 4, "REQ-1");
+
+        assertThrows(HoldNotFoundException.class, () -> service.release("PROD-2", hold.getId()));
+
+        assertStock("PROD-1", 10, 6, 4, 0);
+        assertStock("PROD-2", 10, 10, 0, 0);
     }
 }
