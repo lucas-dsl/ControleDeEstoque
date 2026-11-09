@@ -1,5 +1,6 @@
 package br.com.java.lucas.estoque.domain;
 
+import br.com.java.lucas.estoque.domain.exception.HoldNotFoundException;
 import br.com.java.lucas.estoque.domain.exception.InsufficientStockException;
 import br.com.java.lucas.estoque.domain.exception.InvalidIdentifierException;
 import br.com.java.lucas.estoque.domain.exception.InvalidQuantityException;
@@ -42,6 +43,24 @@ public class StockItem {
 
     public StockHold block(long quantity, String requestId) {
         return createHold(HoldType.BLOCK, quantity, requestId);
+    }
+
+    public StockHold getHold(UUID holdId) {
+        if (holdId == null) {
+            throw new InvalidIdentifierException("holdId");
+        }
+        StockHold hold = holds.get(holdId);
+        if (hold == null) {
+            throw new HoldNotFoundException(holdId, productId);
+        }
+        return hold;
+    }
+
+    public void release(UUID holdId) {
+        StockHold hold = getHold(holdId);
+        hold.release(); // lança se já liberada, antes de qualquer quantidade mudar
+        available += hold.getQuantity();
+        addHeld(hold.getType(), -hold.getQuantity());
     }
 
     public String getProductId() {
